@@ -1,296 +1,19 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useGLTF, Float, OrbitControls } from '@react-three/drei'
-import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing'
-import * as THREE from 'three'
+import React, { useState, useEffect, useRef } from 'react'
 
-// === BRAIN MODEL ===
-function Brain() {
-  const { scene } = useGLTF('/brain.glb')
-  const brainRef = useRef()
-  const matRef = useRef()
+const FONT = "'JetBrains Mono','SF Mono','Fira Code',monospace"
 
-  useEffect(() => {
-    scene.traverse((child) => {
-      if (child.isMesh) {
-        child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(0.15, 0.2, 0.6),
-          emissive: new THREE.Color(0.08, 0.12, 0.5),
-          emissiveIntensity: 0.8,
-          metalness: 0.1,
-          roughness: 0.3,
-          transparent: true,
-          opacity: 0.7,
-          transmission: 0.3,
-          thickness: 1.5,
-          side: THREE.DoubleSide,
-        })
-        matRef.current = child.material
-      }
-    })
-  }, [scene])
-
-  useFrame((state) => {
-    if (brainRef.current) {
-      brainRef.current.rotation.y += 0.002
-    }
-    if (matRef.current) {
-      const t = state.clock.elapsedTime
-      matRef.current.emissiveIntensity = 0.6 + Math.sin(t * 0.8) * 0.3
-    }
-  })
-
-  return (
-    <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.3}>
-      <primitive ref={brainRef} object={scene} scale={1.1} />
-    </Float>
-  )
+// Sketchfab brain models - best candidates
+const BRAIN_MODELS = {
+  pointCloud: 'c427ea0aee214141a78eba37bf9b76bb',   // Brain Point Cloud (228 likes)
+  fibreTracts: 'a7690bea66ba49239d58cd37c5ce76c9',  // Brain Fibre Tracts fMRI (103 likes)
+  lotusBrain: 'a40545079c3946f38f01c766cda5bcf6',   // LotusBrain (154 likes)
+  tractography: 'e2fa21baafdb4cceb558630069a732f9',  // Tractography + Brain MRI
+  simpleBrain: '7a2c96d2bc5c4068b3f715fd5ed95b67',  // Brain (83 likes)
 }
 
-// === PLATFORM RINGS ===
-function PlatformRings() {
-  const ringsRef = useRef()
-  useFrame((state) => {
-    if (ringsRef.current) {
-      ringsRef.current.rotation.y = state.clock.elapsedTime * 0.15
-    }
-  })
-  return (
-    <group ref={ringsRef} position={[0, -1.3, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      {[1.2, 1.6, 2.0, 2.5, 3.0].map((r, i) => (
-        <mesh key={i}>
-          <ringGeometry args={[r - 0.01, r + 0.01, 64]} />
-          <meshBasicMaterial
-            color={new THREE.Color(0.1, 0.3, 1.0)}
-            transparent
-            opacity={0.15 - i * 0.02}
-          />
-        </mesh>
-      ))}
-    </group>
-  )
-}
+// Using Brain Point Cloud as default - most holographic looking
+const BRAIN_ID = BRAIN_MODELS.pointCloud
 
-// === CLUSTER NODE ===
-function ClusterNode({ position, color, label, count }) {
-  const ref = useRef()
-  const glowRef = useRef()
-
-  useFrame((state) => {
-    const t = state.clock.elapsedTime
-    if (ref.current) {
-      ref.current.position.y = position[1] + Math.sin(t * 0.8 + position[0]) * 0.05
-    }
-    if (glowRef.current) {
-      glowRef.current.scale.setScalar(1 + Math.sin(t * 1.5 + position[2]) * 0.15)
-    }
-  })
-
-  return (
-    <group ref={ref} position={position}>
-      {/* Outer glow */}
-      <mesh ref={glowRef}>
-        <sphereGeometry args={[0.35, 16, 16]} />
-        <meshBasicMaterial color={color} transparent opacity={0.08} />
-      </mesh>
-      {/* Core orb */}
-      <mesh>
-        <sphereGeometry args={[0.18, 24, 24]} />
-        <meshPhysicalMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={1.5}
-          metalness={0.3}
-          roughness={0.2}
-          transparent
-          opacity={0.9}
-        />
-      </mesh>
-      {/* Bright center */}
-      <mesh>
-        <sphereGeometry args={[0.06, 12, 12]} />
-        <meshBasicMaterial color="white" />
-      </mesh>
-      {/* Ring */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.22, 0.24, 32]} />
-        <meshBasicMaterial color={color} transparent opacity={0.4} side={THREE.DoubleSide} />
-      </mesh>
-    </group>
-  )
-}
-
-// === TRACE LINE (node to brain center) ===
-function TraceLine({ start, color }) {
-  const lineRef = useRef()
-  const points = useMemo(() => {
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(...start),
-      new THREE.Vector3(start[0] * 0.3, start[1] * 0.5 + 0.3, start[2] * 0.3),
-      new THREE.Vector3(0, 0, 0)
-    )
-    return curve.getPoints(40)
-  }, [start])
-
-  const geometry = useMemo(() => {
-    const geo = new THREE.BufferGeometry().setFromPoints(points)
-    return geo
-  }, [points])
-
-  return (
-    <group>
-      {/* Wide glow */}
-      <line ref={lineRef} geometry={geometry}>
-        <lineBasicMaterial color={color} transparent opacity={0.08} linewidth={1} />
-      </line>
-      {/* Core */}
-      <line geometry={geometry}>
-        <lineBasicMaterial color={color} transparent opacity={0.4} linewidth={1} />
-      </line>
-    </group>
-  )
-}
-
-// === ENERGY PARTICLES flowing along traces ===
-function TraceParticles({ clusters }) {
-  const count = 60
-  const meshRef = useRef()
-  const dummy = useMemo(() => new THREE.Object3D(), [])
-  const particleData = useRef([])
-
-  useEffect(() => {
-    particleData.current = Array.from({ length: count }, () => {
-      const ci = Math.floor(Math.random() * clusters.length)
-      const cl = clusters[ci]
-      return {
-        cluster: ci,
-        t: Math.random(),
-        speed: 0.002 + Math.random() * 0.004,
-        toCenter: Math.random() > 0.35,
-        color: new THREE.Color(cl.color),
-        start: new THREE.Vector3(...cl.position),
-      }
-    })
-  }, [clusters])
-
-  useFrame(() => {
-    if (!meshRef.current) return
-    particleData.current.forEach((p, i) => {
-      p.t += p.speed
-      if (p.t > 1) {
-        p.t = 0
-        p.toCenter = Math.random() > 0.35
-        const ci = Math.floor(Math.random() * clusters.length)
-        p.cluster = ci
-        p.start = new THREE.Vector3(...clusters[ci].position)
-        p.color = new THREE.Color(Math.random() > 0.6 ? '#daa520' : clusters[ci].color)
-      }
-
-      const t = p.toCenter ? p.t : 1 - p.t
-      const mid = p.start.clone().multiplyScalar(0.3).add(new THREE.Vector3(0, 0.3, 0))
-      const pos = new THREE.Vector3()
-      pos.x = (1-t)*(1-t)*p.start.x + 2*(1-t)*t*mid.x + t*t*0
-      pos.y = (1-t)*(1-t)*p.start.y + 2*(1-t)*t*mid.y + t*t*0
-      pos.z = (1-t)*(1-t)*p.start.z + 2*(1-t)*t*mid.z + t*t*0
-
-      const alpha = p.t < 0.1 ? p.t / 0.1 : p.t > 0.85 ? (1 - p.t) / 0.15 : 1
-      const scale = 0.02 + alpha * 0.03
-
-      dummy.position.copy(pos)
-      dummy.scale.setScalar(scale)
-      dummy.updateMatrix()
-      meshRef.current.setMatrixAt(i, dummy.matrix)
-    })
-    meshRef.current.instanceMatrix.needsUpdate = true
-  })
-
-  return (
-    <instancedMesh ref={meshRef} args={[null, null, count]}>
-      <sphereGeometry args={[1, 8, 8]} />
-      <meshBasicMaterial color="#88ccff" transparent opacity={0.8} />
-    </instancedMesh>
-  )
-}
-
-// === AMBIENT STARS ===
-function Stars() {
-  const count = 200
-  const positions = useMemo(() => {
-    const pos = new Float32Array(count * 3)
-    for (let i = 0; i < count; i++) {
-      pos[i*3] = (Math.random() - 0.5) * 20
-      pos[i*3+1] = (Math.random() - 0.5) * 20
-      pos[i*3+2] = (Math.random() - 0.5) * 20
-    }
-    return pos
-  }, [])
-
-  return (
-    <points>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial color="#334488" size={0.03} transparent opacity={0.5} sizeAttenuation />
-    </points>
-  )
-}
-
-// === CLUSTER DEFINITIONS ===
-const CLUSTERS = [
-  { id: 'intel', label: 'INTELLIGENCE', count: 9, color: '#00e5ff', position: [-1.8, 0.8, 0.5] },
-  { id: 'proposal', label: 'PROPOSAL', count: 11, color: '#daa520', position: [1.8, 0.8, 0.5] },
-  { id: 'ops', label: 'OPERATIONS', count: 7, color: '#4ecdc4', position: [-1.6, -0.6, 0.8] },
-  { id: 'research', label: 'RESEARCH', count: 7, color: '#e8834a', position: [1.6, -0.6, 0.8] },
-  { id: 'exec', label: 'EXECUTIVE', count: 4, color: '#9b59b6', position: [0, -1.4, 1.0] },
-  { id: 'meta', label: 'SELF-AWARE', count: 5, color: '#ff6b6b', position: [0, 1.5, 0.3] },
-]
-
-// === SCENE ===
-function Scene() {
-  return (
-    <>
-      <ambientLight intensity={0.15} />
-      <pointLight position={[0, 3, 3]} intensity={0.5} color="#4488ff" />
-      <pointLight position={[-3, -1, 2]} intensity={0.3} color="#8844ff" />
-      <pointLight position={[3, -1, -2]} intensity={0.3} color="#0088ff" />
-
-      <Stars />
-      <Brain />
-      <PlatformRings />
-
-      {CLUSTERS.map(c => (
-        <React.Fragment key={c.id}>
-          <ClusterNode position={c.position} color={c.color} label={c.label} count={c.count} />
-          <TraceLine start={c.position} color={c.color} />
-        </React.Fragment>
-      ))}
-
-      <TraceParticles clusters={CLUSTERS} />
-
-      <OrbitControls
-        enableZoom={true}
-        enablePan={false}
-        autoRotate
-        autoRotateSpeed={0.3}
-        minDistance={3}
-        maxDistance={8}
-        minPolarAngle={Math.PI / 4}
-        maxPolarAngle={Math.PI / 1.5}
-      />
-
-      <EffectComposer>
-        <Bloom
-          intensity={1.2}
-          luminanceThreshold={0.2}
-          luminanceSmoothing={0.9}
-          radius={0.8}
-        />
-      </EffectComposer>
-    </>
-  )
-}
-
-// === PIPELINE DATA ===
 const PIPELINE = [
   { short: 'NOLA Water', opi: 94, stage: 'pursuing', tag: 'INCUMBENT' },
   { short: 'DR-4900 LA', opi: 92, stage: 'identified' },
@@ -302,20 +25,232 @@ const PIPELINE = [
 ]
 
 const FEED = [
-  { agent: 'Intelligence', text: 'Scanning DR-4900 updates', color: '#00e5ff' },
-  { agent: 'Proposal', text: '44K JP SOQ generated', color: '#daa520' },
-  { agent: 'CRM', text: 'Donna Evans — JP Purchasing', color: '#00e5ff' },
-  { agent: 'Red Team', text: 'St. George FEMA PA gap', color: '#e8834a' },
-  { agent: 'Competitive', text: 'Civix/CCG confirmed JP', color: '#00e5ff' },
-  { agent: 'Self-Aware', text: '714 memories/24h', color: '#ff6b6b' },
+  { agent: 'Intelligence Engine', text: 'Scanning DR-4900 Louisiana updates...', color: '#00e5ff' },
+  { agent: 'Proposal Writer', text: '44K chars generated for JP SOQ', color: '#daa520' },
+  { agent: 'CRM Agent', text: 'Donna Evans \u2014 JP Purchasing Director', color: '#00e5ff' },
+  { agent: 'Red Team', text: 'St. George: FEMA PA methodology gap', color: '#e8834a' },
+  { agent: 'Competitive Intel', text: 'Civix/CCG confirmed bidding JP SOQ', color: '#00e5ff' },
+  { agent: 'Self-Awareness', text: '714 memories in 24h. Mesh at 94%.', color: '#ff6b6b' },
+  { agent: 'Discovery', text: '3 new disaster declarations in service area', color: '#4ecdc4' },
+  { agent: 'Financial Agent', text: 'DR-4900 comparable: $2.1M-$4.8M range', color: '#4ecdc4' },
+  { agent: 'Staffing Plan', text: 'St. Mary requires 4 new positions', color: '#4ecdc4' },
+  { agent: 'KB Agent', text: 'LOCD funding data indexed \u2014 7 new chunks', color: '#e8834a' },
 ]
 
-function opiColor(o) { return o >= 90 ? '#00ff88' : o >= 80 ? '#00ccff' : o >= 70 ? '#daa520' : '#ff6b6b' }
+const CLUSTERS = [
+  { label: 'INTELLIGENCE', count: 9, color: '#00e5ff' },
+  { label: 'PROPOSAL', count: 11, color: '#daa520' },
+  { label: 'OPERATIONS', count: 7, color: '#4ecdc4' },
+  { label: 'RESEARCH', count: 7, color: '#e8834a' },
+  { label: 'EXECUTIVE', count: 4, color: '#9b59b6' },
+  { label: 'META', count: 5, color: '#ff6b6b' },
+]
 
-// === MAIN APP ===
+function opiColor(o) {
+  return o >= 90 ? '#00ff88' : o >= 80 ? '#00ccff' : o >= 70 ? '#daa520' : '#ff6b6b'
+}
+
+// Animated traces canvas overlay
+function TracesOverlay() {
+  const canvasRef = useRef(null)
+  const particlesRef = useRef([])
+  const frameRef = useRef(0)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const resize = () => {
+      canvas.width = window.innerWidth
+      canvas.height = window.innerHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const ctx = canvas.getContext('2d')
+    let running = true
+    let spawnCD = 0
+
+    const cx = () => canvas.width / 2
+    const cy = () => canvas.height * 0.42
+
+    // Cluster node screen positions (around the brain)
+    const nodePositions = () => {
+      const w = canvas.width, h = canvas.height
+      const r = Math.min(w, h) * 0.35
+      const c = { x: w/2, y: h * 0.42 }
+      return [
+        { x: c.x - r*0.75, y: c.y - r*0.55, color: '#00e5ff', label: 'INTELLIGENCE' },
+        { x: c.x + r*0.75, y: c.y - r*0.55, color: '#daa520', label: 'PROPOSAL' },
+        { x: c.x - r*0.85, y: c.y + r*0.35, color: '#4ecdc4', label: 'OPERATIONS' },
+        { x: c.x + r*0.85, y: c.y + r*0.35, color: '#e8834a', label: 'RESEARCH' },
+        { x: c.x, y: c.y + r*0.75, color: '#9b59b6', label: 'EXECUTIVE' },
+        { x: c.x, y: c.y - r*0.75, color: '#ff6b6b', label: 'META' },
+      ]
+    }
+
+    const animate = () => {
+      if (!running) return
+      const frame = ++frameRef.current
+      const particles = particlesRef.current
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      const nodes = nodePositions()
+      const centerX = cx(), centerY = cy()
+
+      // Draw traces from each node to center
+      nodes.forEach((n, idx) => {
+        const cpx = n.x + (centerX - n.x) * 0.5 + Math.sin(frame * 0.01 + idx) * 20
+        const cpy = n.y + (centerY - n.y) * 0.5 + Math.cos(frame * 0.012 + idx) * 15
+
+        // Wide glow
+        ctx.globalAlpha = 0.06
+        ctx.strokeStyle = n.color
+        ctx.lineWidth = 16
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(n.x, n.y)
+        ctx.quadraticCurveTo(cpx, cpy, centerX, centerY)
+        ctx.stroke()
+
+        // Medium
+        ctx.globalAlpha = 0.15
+        ctx.lineWidth = 4
+        ctx.beginPath()
+        ctx.moveTo(n.x, n.y)
+        ctx.quadraticCurveTo(cpx, cpy, centerX, centerY)
+        ctx.stroke()
+
+        // Core
+        ctx.globalAlpha = 0.4
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(n.x, n.y)
+        ctx.quadraticCurveTo(cpx, cpy, centerX, centerY)
+        ctx.stroke()
+
+        // Energy pulse on trace
+        const pt = (frame * 0.004 + idx * 0.17) % 1
+        const it = 1 - pt
+        const px = it*it*n.x + 2*it*pt*cpx + pt*pt*centerX
+        const py = it*it*n.y + 2*it*pt*cpy + pt*pt*centerY
+        ctx.globalAlpha = 0.7
+        const pg = ctx.createRadialGradient(px, py, 0, px, py, 8)
+        pg.addColorStop(0, '#ffffff')
+        pg.addColorStop(0.4, n.color)
+        pg.addColorStop(1, 'transparent')
+        ctx.fillStyle = pg
+        ctx.beginPath()
+        ctx.arc(px, py, 8, 0, Math.PI * 2)
+        ctx.fill()
+
+        // Return pulse
+        const p2 = (frame * 0.003 + idx * 0.17 + 0.5) % 1
+        const p2x = p2*p2*n.x + 2*p2*(1-p2)*cpx + (1-p2)*(1-p2)*centerX
+        const p2y = p2*p2*n.y + 2*p2*(1-p2)*cpy + (1-p2)*(1-p2)*centerY
+        ctx.globalAlpha = 0.35
+        const pg2 = ctx.createRadialGradient(p2x, p2y, 0, p2x, p2y, 5)
+        pg2.addColorStop(0, n.color)
+        pg2.addColorStop(1, 'transparent')
+        ctx.fillStyle = pg2
+        ctx.beginPath()
+        ctx.arc(p2x, p2y, 5, 0, Math.PI * 2)
+        ctx.fill()
+
+        // Draw cluster node orb
+        const breathe = 1 + Math.sin(frame * 0.02 + idx * 2) * 0.08
+        const nr = 20 * breathe
+
+        ctx.globalAlpha = 0.1
+        const h = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, nr * 2.5)
+        h.addColorStop(0, n.color)
+        h.addColorStop(1, 'transparent')
+        ctx.fillStyle = h
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, nr * 2.5, 0, Math.PI * 2)
+        ctx.fill()
+
+        ctx.globalAlpha = 0.7
+        const g = ctx.createRadialGradient(n.x - nr*0.2, n.y - nr*0.25, nr*0.1, n.x, n.y, nr)
+        g.addColorStop(0, '#ffffff')
+        g.addColorStop(0.35, n.color)
+        g.addColorStop(0.8, n.color + 'aa')
+        g.addColorStop(1, n.color + '44')
+        ctx.fillStyle = g
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, nr, 0, Math.PI * 2)
+        ctx.fill()
+
+        // Ring
+        ctx.globalAlpha = 0.35
+        ctx.strokeStyle = n.color
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, nr + 4, 0, Math.PI * 2)
+        ctx.stroke()
+
+        // Label
+        ctx.globalAlpha = 0.6
+        ctx.fillStyle = n.color
+        ctx.font = 'bold 10px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(n.label, n.x, n.y + nr + 18)
+      })
+
+      // Spawn free particles
+      if (++spawnCD > 4) {
+        spawnCD = 0
+        const n = nodes[Math.floor(Math.random() * nodes.length)]
+        const toCenter = Math.random() > 0.3
+        const gold = Math.random() > 0.6
+        particles.push({
+          fx: toCenter ? n.x : centerX, fy: toCenter ? n.y : centerY,
+          tx: toCenter ? centerX : n.x, ty: toCenter ? centerY : n.y,
+          cpx: n.x + (centerX - n.x) * 0.5 + Math.sin(Math.random() * 6) * 25,
+          cpy: n.y + (centerY - n.y) * 0.5 + Math.cos(Math.random() * 6) * 20,
+          t: 0, speed: 0.004 + Math.random() * 0.007,
+          color: gold ? '#daa520' : n.color,
+          size: gold ? 3 : 2,
+        })
+      }
+
+      // Draw particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i]
+        p.t += p.speed
+        if (p.t >= 1) { particles.splice(i, 1); continue }
+        const t = p.t, it2 = 1 - t
+        const x = it2*it2*p.fx + 2*it2*t*p.cpx + t*t*p.tx
+        const y = it2*it2*p.fy + 2*it2*t*p.cpy + t*t*p.ty
+        const a = t < 0.1 ? t/0.1 : t > 0.85 ? (1-t)/0.15 : 1
+        ctx.globalAlpha = a * 0.2
+        ctx.fillStyle = p.color
+        ctx.beginPath(); ctx.arc(x, y, p.size * 4, 0, Math.PI * 2); ctx.fill()
+        ctx.globalAlpha = a * 0.9
+        ctx.beginPath(); ctx.arc(x, y, p.size, 0, Math.PI * 2); ctx.fill()
+        ctx.globalAlpha = a
+        ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.arc(x, y, p.size * 0.35, 0, Math.PI * 2); ctx.fill()
+      }
+
+      ctx.globalAlpha = 1
+      requestAnimationFrame(animate)
+    }
+    animate()
+    return () => { running = false; window.removeEventListener('resize', resize) }
+  }, [])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}
+    />
+  )
+}
+
 export default function App() {
   const [time, setTime] = useState(new Date())
   const [feedIdx, setFeedIdx] = useState(0)
+  const [brainModel, setBrainModel] = useState('pointCloud')
 
   useEffect(() => {
     const t1 = setInterval(() => setTime(new Date()), 1000)
@@ -323,78 +258,124 @@ export default function App() {
     return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
-  const F = "'JetBrains Mono','SF Mono','Fira Code',monospace"
-  const P = { background: 'rgba(4,7,20,0.82)', border: '1px solid rgba(68,136,255,0.1)', borderRadius: 8, backdropFilter: 'blur(10px)' }
+  const P = {
+    background: 'rgba(4,7,20,0.82)',
+    border: '1px solid rgba(68,136,255,0.1)',
+    borderRadius: 8,
+    backdropFilter: 'blur(10px)',
+  }
+
+  const brainId = BRAIN_MODELS[brainModel]
+  const embedUrl = `https://sketchfab.com/models/${brainId}/embed?autostart=1&transparent=1&ui_animations=0&ui_infos=0&ui_stop=0&ui_inspector=0&ui_watermark_link=0&ui_watermark=0&ui_ar=0&ui_help=0&ui_settings=0&ui_vr=0&ui_fullscreen=0&ui_annotations=0&preload=1&camera=0&ui_controls=0&ui_fadeout=0&dnt=1`
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#030510', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ width: '100vw', height: '100vh', background: '#030510', overflow: 'hidden', position: 'relative', fontFamily: FONT, color: '#c0ccdd' }}>
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet" />
+      <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}`}</style>
 
-      {/* 3D Scene */}
-      <Canvas camera={{ position: [0, 0.5, 5], fov: 50 }} style={{ position: 'absolute', inset: 0 }}>
-        <Scene />
-      </Canvas>
+      {/* Sketchfab brain embed - full screen behind everything */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+        <iframe
+          title="HGI Brain"
+          src={embedUrl}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            background: 'transparent',
+          }}
+          allow="autoplay; fullscreen; xr-spatial-tracking"
+          allowFullScreen
+        />
+        {/* Dark vignette overlay to blend brain into dark UI */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(3,5,16,0.7) 70%, rgba(3,5,16,0.95) 100%)',
+        }} />
+      </div>
+
+      {/* Animated traces + cluster nodes */}
+      <TracesOverlay />
 
       {/* Header */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to bottom, rgba(3,5,16,0.8), transparent)', fontFamily: F }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to bottom, rgba(3,5,16,0.9), transparent)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 12px #00ff88' }} />
-          <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: 4, color: '#7788aa' }}>HGI ORGANISM</span>
-          <span style={{ fontSize: 9, color: '#334455' }}>v3.4 • 47 agents</span>
+          <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 5, color: '#7788aa' }}>HGI ORGANISM</span>
+          <span style={{ fontSize: 9, color: '#334455', letterSpacing: 2 }}>NEURAL OPERATIONS HUB</span>
         </div>
-        <span style={{ fontSize: 10, color: '#334455' }}>{time.toLocaleTimeString()}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* Brain model switcher */}
+          <select
+            value={brainModel}
+            onChange={e => setBrainModel(e.target.value)}
+            style={{ background: 'rgba(4,7,20,0.8)', border: '1px solid rgba(68,136,255,0.15)', borderRadius: 4, color: '#4488ff', fontSize: 8, padding: '2px 6px', fontFamily: FONT, cursor: 'pointer' }}
+          >
+            <option value="pointCloud">Brain: Point Cloud</option>
+            <option value="fibreTracts">Brain: Fibre Tracts</option>
+            <option value="lotusBrain">Brain: Lotus</option>
+            <option value="tractography">Brain: Tractography</option>
+            <option value="simpleBrain">Brain: Simple</option>
+          </select>
+          <span style={{ fontSize: 10, color: '#334455' }}>{time.toLocaleTimeString()}</span>
+        </div>
       </div>
 
       {/* Left Panel: Pipeline */}
-      <div style={{ position: 'absolute', left: 12, top: 44, width: 180, zIndex: 10, ...P, padding: 10, maxHeight: '55%', overflowY: 'auto', fontFamily: F }}>
+      <div style={{ position: 'absolute', left: 12, top: 50, width: 190, zIndex: 10, ...P, padding: 10, maxHeight: '50%', overflowY: 'auto' }}>
         <div style={{ fontSize: 8, letterSpacing: 2, color: '#4466aa', fontWeight: 700, marginBottom: 8 }}>ACTIVE PIPELINE</div>
-        {PIPELINE.map((p, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, padding: '4px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.02)', cursor: 'pointer' }}>
-            <span style={{ background: opiColor(p.opi), color: '#000', fontWeight: 800, fontSize: 9, padding: '1px 4px', borderRadius: 3, minWidth: 20, textAlign: 'center' }}>{p.opi}</span>
-            <div>
-              <div style={{ fontSize: 9, color: '#8899aa', fontWeight: 600 }}>{p.short}</div>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <span style={{ fontSize: 7, color: p.stage === 'pursuing' ? '#00ccff' : p.stage === 'submitted' ? '#9b59b6' : '#667788', textTransform: 'uppercase' }}>{p.stage}</span>
-                {p.due && <span style={{ fontSize: 7, color: p.due === 'Apr 9' ? '#ff4444' : '#556677' }}>{p.due}</span>}
-                {p.tag && <span style={{ fontSize: 7, color: p.tag === 'URGENT' ? '#ff4444' : p.tag === 'INCUMBENT' ? '#00ff88' : '#9b59b6', fontWeight: 700 }}>{p.tag}</span>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Right Panel: Thought Stream */}
-      <div style={{ position: 'absolute', right: 12, top: 44, width: 190, zIndex: 10, ...P, padding: 10, maxHeight: '50%', overflowY: 'auto', fontFamily: F }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontSize: 8, letterSpacing: 2, color: '#4466aa', fontWeight: 700 }}>THOUGHT STREAM</span>
-          <span style={{ fontSize: 8, color: '#ff3333' }}>● LIVE</span>
-        </div>
-        {[...Array(5)].map((_, i) => {
-          const f = FEED[(feedIdx + i) % FEED.length]
+        {PIPELINE.map((p, i) => {
+          const urgent = p.due === 'Apr 9'
           return (
-            <div key={i} style={{ marginBottom: 8, opacity: 1 - i * 0.15 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 4, height: 4, borderRadius: '50%', background: f.color }} />
-                <span style={{ fontSize: 8, color: f.color, fontWeight: 600 }}>{f.agent}</span>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, padding: '5px 6px', borderRadius: 5, background: 'rgba(255,255,255,0.02)', border: urgent ? '1px solid rgba(255,68,68,0.15)' : '1px solid transparent', cursor: 'pointer' }}>
+              <span style={{ background: opiColor(p.opi), color: '#000', fontWeight: 800, fontSize: 9, padding: '1px 5px', borderRadius: 3, minWidth: 22, textAlign: 'center' }}>{p.opi}</span>
+              <div>
+                <div style={{ fontSize: 9, color: '#8899aa', fontWeight: 600 }}>{p.short}</div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <span style={{ fontSize: 7, color: p.stage === 'pursuing' ? '#00ccff' : p.stage === 'submitted' ? '#9b59b6' : '#667788', textTransform: 'uppercase', letterSpacing: 1 }}>{p.stage}</span>
+                  {p.due && <span style={{ fontSize: 7, color: urgent ? '#ff4444' : '#556677' }}>{p.due}</span>}
+                  {p.tag && <span style={{ fontSize: 7, color: p.tag === 'URGENT' ? '#ff4444' : p.tag === 'INCUMBENT' ? '#00ff88' : '#9b59b6', fontWeight: 700 }}>{p.tag}</span>}
+                </div>
               </div>
-              <div style={{ fontSize: 8, color: '#667788', lineHeight: 1.4, paddingLeft: 8 }}>{f.text}</div>
             </div>
           )
         })}
       </div>
 
-      {/* Bottom: Cluster Legend + Stats */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, padding: '8px 20px', background: 'linear-gradient(to top, rgba(3,5,16,0.85), transparent)', fontFamily: F, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Right Panel: Thought Stream */}
+      <div style={{ position: 'absolute', right: 12, top: 50, width: 210, zIndex: 10, ...P, padding: 10, maxHeight: '55%', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 8, letterSpacing: 2, color: '#4466aa', fontWeight: 700 }}>THOUGHT STREAM</span>
+          <span style={{ fontSize: 8, color: '#ff3333', animation: 'blink 1s step-end infinite' }}>\u25cf LIVE</span>
+        </div>
+        {[...Array(7)].map((_, i) => {
+          const f = FEED[(feedIdx + i) % FEED.length]
+          return (
+            <div key={i} style={{ marginBottom: 10, opacity: 1 - i * 0.1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                <div style={{ width: 4, height: 4, borderRadius: '50%', background: f.color }} />
+                <span style={{ fontSize: 8, color: f.color, fontWeight: 600 }}>{f.agent}</span>
+              </div>
+              <div style={{ fontSize: 8, color: '#667788', lineHeight: 1.5, paddingLeft: 8 }}>{f.text}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Bottom: Stats + Legend */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, padding: '8px 20px', background: 'linear-gradient(to top, rgba(3,5,16,0.9), transparent)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 12 }}>
           {CLUSTERS.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: c.color, boxShadow: `0 0 4px ${c.color}` }} />
+            <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: c.color, boxShadow: '0 0 4px ' + c.color }} />
               <span style={{ fontSize: 8, color: '#556677' }}>{c.label} <span style={{ color: c.color }}>({c.count})</span></span>
             </div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 14 }}>
           <span style={{ fontSize: 8, color: '#334455' }}>Memories: <span style={{ color: '#4488ff' }}>5,546</span></span>
+          <span style={{ fontSize: 8, color: '#334455' }}>24h: <span style={{ color: '#00ff88' }}>714</span></span>
+          <span style={{ fontSize: 8, color: '#334455' }}>Rivals: <span style={{ color: '#e8834a' }}>47</span></span>
           <span style={{ fontSize: 8, color: '#334455' }}>Next: <span style={{ color: '#ff4444' }}>JP SOQ Apr 9</span></span>
         </div>
       </div>
