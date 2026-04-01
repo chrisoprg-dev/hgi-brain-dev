@@ -13,11 +13,12 @@ export function Scene() {
   return (
     <>
       {/* Lighting */}
-      <ambientLight intensity={0.05} color="#1a1a3a" />
-      <pointLight position={[0, 30, 0]} intensity={0.5} color="#4488ff" distance={80} />
-      <pointLight position={[0, -5, 0]} intensity={0.8} color="#00ccff" distance={40} />
-      <pointLight position={[20, 15, 10]} intensity={0.2} color="#ff6644" distance={50} />
-      <pointLight position={[-20, 15, -10]} intensity={0.2} color="#aa44ff" distance={50} />
+      <ambientLight intensity={0.08} color="#1a1a3a" />
+      <pointLight position={[0, 30, 0]} intensity={1.0} color="#4488ff" distance={100} />
+      <pointLight position={[0, -5, 0]} intensity={1.5} color="#00ccff" distance={50} />
+      <pointLight position={[25, 15, 15]} intensity={0.5} color="#ff6644" distance={60} />
+      <pointLight position={[-25, 15, -15]} intensity={0.5} color="#aa44ff" distance={60} />
+      <pointLight position={[0, 10, 0]} intensity={0.8} color="#ffffff" distance={30} />
 
       {/* The Brain */}
       <Brain />
@@ -37,19 +38,20 @@ export function Scene() {
       {/* Atmospheric Particles */}
       <Particles />
 
-      {/* Post-processing */}
+      {/* Post-processing — HEAVY bloom for cinematic glow */}
       <EffectComposer>
         <Bloom
-          intensity={1.8}
-          luminanceThreshold={0.15}
-          luminanceSmoothing={0.9}
-          radius={0.85}
+          intensity={3.0}
+          luminanceThreshold={0.1}
+          luminanceSmoothing={0.95}
+          radius={0.95}
           mipmapBlur
+          levels={8}
         />
         <ChromaticAberration
-          offset={new THREE.Vector2(0.0008, 0.0008)}
+          offset={new THREE.Vector2(0.0015, 0.0015)}
           radialModulation={true}
-          modulationOffset={0.5}
+          modulationOffset={0.3}
         />
       </EffectComposer>
     </>
