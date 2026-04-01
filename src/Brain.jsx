@@ -1,6 +1,5 @@
 import React, { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
 const NOISE_GLSL = `
@@ -35,20 +34,25 @@ float snoise(vec3 v){
 `
 
 export function Brain() {
-  const { scene } = useGLTF('/brain.glb')
   const brainRef = useRef()
   const glowRef = useRef()
 
+  // Build brain geometry procedurally with proper folds
   const brainGeo = useMemo(() => {
-    let geometry = null
-    scene.traverse((child) => {
-      if (child.isMesh && child.geometry) {
-        geometry = child.geometry.clone()
-      }
-    })
-    if (geometry) geometry.computeVertexNormals()
-    return geometry
-  }, [scene])
+    const geo = new THREE.IcosahedronGeometry(8, 6)
+    const pos = geo.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      const len = Math.sqrt(x*x + y*y + z*z)
+      x /= len; y /= len; z /= len
+      x *= 1.35; y *= 0.82; z *= 1.08
+      if (y < -0.2) y *= 0.55
+      if (z > 0.3) z *= 1.0 + (z - 0.3) * 0.15
+      pos.setXYZ(i, x * 8, y * 8, z * 8)
+    }
+    geo.computeVertexNormals()
+    return geo
+  }, [])
 
   const brainMat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
@@ -60,11 +64,19 @@ export function Brain() {
     vertexShader: `
       ${NOISE_GLSL}
       uniform float uTime;
-      varying vec3 vNormal; varying vec3 vViewPos; varying vec3 vWorldPos; varying float vNoise;
+      varying vec3 vNormal; varying vec3 vViewPos; varying vec3 vWorldPos; varying float vDisp;
       void main(){
-        float n = snoise(position * 0.15 + uTime * 0.08) * 0.3;
-        vec3 newPos = position + normal * n;
-        vNoise = n;
+        float n1 = snoise(position * 0.3 + uTime * 0.04) * 1.4;
+        float n2 = snoise(position * 0.65 + uTime * 0.025) * 0.6;
+        float n3 = snoise(position * 1.3 + uTime * 0.015) * 0.25;
+        float n4 = snoise(position * 2.5 + uTime * 0.01) * 0.12;
+        float displacement = n1 + n2 + n3 + n4;
+        float fissure = exp(-pow(position.z * 0.7, 2.0) * 3.0) * 0.8;
+        displacement -= fissure;
+        float lateral = exp(-pow(position.y + 1.0, 2.0) * 2.0) * exp(-pow(abs(position.z) - 3.0, 2.0) * 0.5) * 0.4;
+        displacement -= lateral;
+        vDisp = displacement;
+        vec3 newPos = position + normal * displacement;
         vNormal = normalize(normalMatrix * normal);
         vec4 mvPos = modelViewMatrix * vec4(newPos, 1.0);
         vViewPos = mvPos.xyz;
@@ -73,12 +85,11 @@ export function Brain() {
       }`,
     fragmentShader: `
       uniform float uTime; uniform vec3 uColor1; uniform vec3 uColor2; uniform vec3 uColor3;
-      varying vec3 vNormal; varying vec3 vViewPos; varying vec3 vWorldPos; varying float vNoise;
+      varying vec3 vNormal; varying vec3 vViewPos; varying vec3 vWorldPos; varying float vDisp;
       void main(){
         vec3 viewDir = normalize(-vViewPos);
         float fresnel = pow(1.0 - max(dot(vNormal, viewDir), 0.0), 2.5);
-        float h = (vWorldPos.y + 8.0) / 16.0;
-        vec3 base = mix(uColor1, uColor2, h);
+        vec3 base = mix(uColor1, uColor2, smoothstep(-0.8, 1.2, vDisp));
         float fire1 = pow(max(0.0, sin(vWorldPos.x*1.5+uTime*1.5)*sin(vWorldPos.y*2.0+uTime*1.1)*sin(vWorldPos.z*1.8+uTime*0.8)), 8.0);
         float fire2 = pow(max(0.0, sin(vWorldPos.x*0.8-uTime*0.6)*sin(vWorldPos.y*1.3+uTime*1.3)*sin(vWorldPos.z*1.6-uTime*1.0)), 6.0);
         float fire3 = pow(max(0.0, sin(vWorldPos.x*2.2+uTime*0.9)*sin(vWorldPos.y*0.9-uTime*0.7)*sin(vWorldPos.z*1.1+uTime*1.4)), 10.0);
@@ -88,9 +99,9 @@ export function Brain() {
         base += vec3(1.0) * pow(fresnel, 5.0) * 2.0;
         float sss = pow(max(0.0, dot(vNormal, normalize(vec3(0.3,1.0,0.2)))), 3.0) * 0.3;
         base += uColor3 * sss;
-        gl_FragColor = vec4(base, 0.7 + fresnel * 0.3);
+        gl_FragColor = vec4(base, 0.75 + fresnel * 0.25);
       }`,
-    transparent: true, side: THREE.FrontSide,
+    transparent: true, side: THREE.DoubleSide,
   }), [])
 
   const glowMat = useMemo(() => new THREE.ShaderMaterial({
@@ -99,10 +110,11 @@ export function Brain() {
       ${NOISE_GLSL}
       uniform float uTime; varying vec3 vNormal; varying vec3 vViewPos;
       void main(){
-        float n = snoise(position*0.12+uTime*0.06)*0.4;
-        vec3 newPos = position + normal * n;
+        float n1 = snoise(position * 0.3 + uTime * 0.04) * 1.0;
+        float n2 = snoise(position * 0.65 + uTime * 0.025) * 0.4;
+        vec3 newPos = position + normal * (n1 + n2 - 0.2);
         vNormal = normalize(normalMatrix * normal);
-        vec4 mv = modelViewMatrix * vec4(newPos,1.0);
+        vec4 mv = modelViewMatrix * vec4(newPos, 1.0);
         vViewPos = mv.xyz;
         gl_Position = projectionMatrix * mv;
       }`,
@@ -111,7 +123,7 @@ export function Brain() {
       void main(){
         vec3 vd = normalize(-vViewPos);
         float f = pow(1.0 - max(dot(vNormal, vd), 0.0), 2.0);
-        gl_FragColor = vec4(uColor*2.0, f*0.6);
+        gl_FragColor = vec4(uColor * 2.0, f * 0.6);
       }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
   }), [])
@@ -124,22 +136,18 @@ export function Brain() {
     if (glowRef.current) glowRef.current.rotation.y = t * 0.04
   })
 
-  if (!brainGeo) return null
-
   return (
     <group position={[0, 10, 0]} rotation={[-0.1, 0, 0]}>
       <mesh ref={brainRef} geometry={brainGeo} material={brainMat} />
-      <mesh ref={glowRef} geometry={brainGeo.clone()} material={glowMat} scale={1.04} />
-      <mesh scale={[1.15, 1.05, 1.1]}>
+      <mesh ref={glowRef} geometry={brainGeo.clone()} material={glowMat} scale={1.06} />
+      <mesh scale={[1.2, 1.05, 1.12]}>
         <sphereGeometry args={[9, 32, 24]} />
-        <meshBasicMaterial color="#3344aa" transparent opacity={0.035} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.BackSide} />
+        <meshBasicMaterial color="#3344aa" transparent opacity={0.04} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.BackSide} />
       </mesh>
-      <mesh scale={[1.35, 1.2, 1.3]}>
+      <mesh scale={[1.45, 1.25, 1.35]}>
         <sphereGeometry args={[9, 24, 16]} />
-        <meshBasicMaterial color="#2233aa" transparent opacity={0.015} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.BackSide} />
+        <meshBasicMaterial color="#2233aa" transparent opacity={0.02} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.BackSide} />
       </mesh>
     </group>
   )
 }
-
-useGLTF.preload('/brain.glb')
