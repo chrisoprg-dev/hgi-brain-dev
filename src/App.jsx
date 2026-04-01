@@ -4,15 +4,16 @@ const FONT = "'JetBrains Mono','SF Mono','Fira Code',monospace"
 
 // Sketchfab brain models - best candidates
 const BRAIN_MODELS = {
-  pointCloud: 'c427ea0aee214141a78eba37bf9b76bb',   // Brain Point Cloud (228 likes)
-  fibreTracts: 'a7690bea66ba49239d58cd37c5ce76c9',  // Brain Fibre Tracts fMRI (103 likes)
-  lotusBrain: 'a40545079c3946f38f01c766cda5bcf6',   // LotusBrain (154 likes)
-  tractography: 'e2fa21baafdb4cceb558630069a732f9',  // Tractography + Brain MRI
-  simpleBrain: '7a2c96d2bc5c4068b3f715fd5ed95b67',  // Brain (83 likes)
+  hologram: '09d686a1a1f745cba6b2385d0c831214',      // Brain Hologram (117 likes)
+  hologramAnim: '18e8505582aa46879acc9da891958677',   // Brain Hologram Animated
+  brainLab: 'ebb30c663b1441799b0992aa497c7fe6',      // Brain Lab (82 likes)
+  vrBrain: '285bbd0d6b9b4bb7bb988f8320cd4d30',       // VR Brain UI (211 likes)
+  pointCloud: 'c427ea0aee214141a78eba37bf9b76bb',    // Brain Point Cloud (228 likes)
+  fibreTracts: 'a7690bea66ba49239d58cd37c5ce76c9',   // Brain Fibre Tracts (103 likes)
 }
 
-// Using Brain Point Cloud as default - most holographic looking
-const BRAIN_ID = BRAIN_MODELS.pointCloud
+// Using Brain Hologram as default
+const BRAIN_ID = BRAIN_MODELS.hologram
 
 const PIPELINE = [
   { short: 'NOLA Water', opi: 94, stage: 'pursuing', tag: 'INCUMBENT' },
@@ -250,7 +251,7 @@ function TracesOverlay() {
 export default function App() {
   const [time, setTime] = useState(new Date())
   const [feedIdx, setFeedIdx] = useState(0)
-  const [brainModel, setBrainModel] = useState('pointCloud')
+  const [brainModel, setBrainModel] = useState('hologram')
 
   useEffect(() => {
     const t1 = setInterval(() => setTime(new Date()), 1000)
@@ -273,8 +274,8 @@ export default function App() {
       <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet" />
       <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}`}</style>
 
-      {/* Sketchfab brain embed - full screen behind everything */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+      {/* Sketchfab brain - centered, contained */}
+      <div style={{ position: 'absolute', left: '50%', top: '42%', transform: 'translate(-50%, -50%)', width: '55vmin', height: '55vmin', zIndex: 1 }}>
         <iframe
           title="HGI Brain"
           src={embedUrl}
@@ -287,12 +288,12 @@ export default function App() {
           allow="autoplay; fullscreen; xr-spatial-tracking"
           allowFullScreen
         />
-        {/* Dark vignette overlay to blend brain into dark UI */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none',
-          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(3,5,16,0.7) 70%, rgba(3,5,16,0.95) 100%)',
-        }} />
       </div>
+      {/* Dark vignette overlay */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse at 50% 42%, transparent 15%, rgba(3,5,16,0.5) 35%, rgba(3,5,16,0.95) 60%)',
+      }} />
 
       {/* Animated traces + cluster nodes */}
       <TracesOverlay />
@@ -311,11 +312,12 @@ export default function App() {
             onChange={e => setBrainModel(e.target.value)}
             style={{ background: 'rgba(4,7,20,0.8)', border: '1px solid rgba(68,136,255,0.15)', borderRadius: 4, color: '#4488ff', fontSize: 8, padding: '2px 6px', fontFamily: FONT, cursor: 'pointer' }}
           >
+            <option value="hologram">Brain: Hologram</option>
+            <option value="hologramAnim">Brain: Hologram Animated</option>
+            <option value="brainLab">Brain: Lab</option>
+            <option value="vrBrain">Brain: VR Interface</option>
             <option value="pointCloud">Brain: Point Cloud</option>
             <option value="fibreTracts">Brain: Fibre Tracts</option>
-            <option value="lotusBrain">Brain: Lotus</option>
-            <option value="tractography">Brain: Tractography</option>
-            <option value="simpleBrain">Brain: Simple</option>
           </select>
           <span style={{ fontSize: 10, color: '#334455' }}>{time.toLocaleTimeString()}</span>
         </div>
