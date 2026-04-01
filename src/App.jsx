@@ -35,7 +35,7 @@ export default function App() {
           <Particles />
 
           <EffectComposer>
-            <Bloom intensity={2.5} luminanceThreshold={0.08} luminanceSmoothing={0.95} radius={0.9} mipmapBlur levels={8} />
+            <Bloom intensity={0.8} luminanceThreshold={0.2} luminanceSmoothing={0.95} radius={0.9} mipmapBlur levels={8} />
             <ChromaticAberration offset={new THREE.Vector2(0.001, 0.001)} radialModulation modulationOffset={0.4} />
             <Vignette eskil={false} offset={0.3} darkness={0.8} />
           </EffectComposer>
