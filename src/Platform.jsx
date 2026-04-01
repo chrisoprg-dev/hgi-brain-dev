@@ -1,77 +1,52 @@
-import React, { useRef, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
 export function Platform() {
-  const discRef = useRef()
-  const ringsRef = useRef([])
-
   const discMat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
-    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
     fragmentShader: `
       uniform float uTime; varying vec2 vUv;
       void main(){
         vec2 c = vUv - 0.5;
         float d = length(c);
         float angle = atan(c.y, c.x);
-        // Concentric pulse rings
-        float rings = sin(d * 40.0 - uTime * 2.0) * 0.5 + 0.5;
-        rings *= smoothstep(0.5, 0.1, d);
-        // Radial scan lines
-        float radial = sin(angle * 12.0 + uTime * 0.5) * 0.5 + 0.5;
-        // Grid pattern
-        float grid = step(0.95, fract(c.x * 20.0)) + step(0.95, fract(c.y * 20.0));
-        grid *= smoothstep(0.5, 0.2, d) * 0.3;
-        float alpha = (rings * 0.06 + radial * 0.02 + grid * 0.04) * smoothstep(0.5, 0.0, d);
-        vec3 col = mix(vec3(0.0, 0.6, 1.0), vec3(0.3, 0.4, 1.0), radial);
-        gl_FragColor = vec4(col, alpha);
+        float rings = sin(d * 50.0 - uTime * 2.5) * 0.5 + 0.5;
+        rings *= smoothstep(0.5, 0.05, d);
+        float radial = sin(angle * 16.0 + uTime * 0.3) * 0.5 + 0.5;
+        float grid = step(0.96, fract(c.x * 25.0)) + step(0.96, fract(c.y * 25.0));
+        grid *= smoothstep(0.5, 0.15, d) * 0.2;
+        float alpha = (rings * 0.08 + radial * 0.02 + grid * 0.05) * smoothstep(0.5, 0.0, d);
+        gl_FragColor = vec4(0.15, 0.5, 1.0, alpha);
       }
     `,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   }), [])
 
-  useFrame(({ clock }) => {
-    discMat.uniforms.uTime.value = clock.getElapsedTime()
-  })
+  useFrame(({ clock }) => { discMat.uniforms.uTime.value = clock.getElapsedTime() })
 
   return (
-    <group position={[0, -2, 0]}>
-      {/* Main disc */}
-      <mesh ref={discRef} rotation={[-Math.PI / 2, 0, 0]} material={discMat}>
-        <circleGeometry args={[25, 128]} />
+    <group position={[0, -3, 0]}>
+      <mesh rotation={[-Math.PI/2, 0, 0]} material={discMat}>
+        <circleGeometry args={[28, 128]} />
       </mesh>
-
-      {/* Concentric rings */}
-      {[8, 11, 14.5, 18, 22, 26].map((r, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[r - 0.06, r + 0.06, 128]} />
-          <meshBasicMaterial
-            color={i % 2 === 0 ? '#00aaff' : '#4466ff'}
-            transparent opacity={0.2 - i * 0.025}
-            blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide}
-          />
+      {[6, 9, 12.5, 16, 20, 24, 28].map((r, i) => (
+        <mesh key={i} rotation={[-Math.PI/2, 0, 0]}>
+          <ringGeometry args={[r - 0.05, r + 0.05, 128]} />
+          <meshBasicMaterial color={i % 2 === 0 ? '#0099ff' : '#3355ff'} transparent opacity={0.25 - i * 0.03} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>
       ))}
-
-      {/* Bright inner ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[5.8, 6.2, 128]} />
-        <meshBasicMaterial color="#00ccff" transparent opacity={0.35} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} />
+      <mesh rotation={[-Math.PI/2, 0, 0]}>
+        <ringGeometry args={[4.5, 5.0, 128]} />
+        <meshBasicMaterial color="#00ddff" transparent opacity={0.4} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
-
-      {/* Floor grid lines extending outward */}
-      {Array.from({ length: 16 }).map((_, i) => {
-        const angle = (i / 16) * Math.PI * 2
-        const x1 = Math.cos(angle) * 6, z1 = Math.sin(angle) * 6
-        const x2 = Math.cos(angle) * 35, z2 = Math.sin(angle) * 35
-        const points = [new THREE.Vector3(x1, 0, z1), new THREE.Vector3(x2, 0, z2)]
-        const geo = new THREE.BufferGeometry().setFromPoints(points)
-        return (
-          <line key={`grid-${i}`} geometry={geo}>
-            <lineBasicMaterial color="#1a3366" transparent opacity={0.15} blending={THREE.AdditiveBlending} />
-          </line>
-        )
+      {Array.from({length: 24}).map((_, i) => {
+        const a = (i/24)*Math.PI*2
+        const pts = [new THREE.Vector3(Math.cos(a)*5, 0, Math.sin(a)*5), new THREE.Vector3(Math.cos(a)*35, 0, Math.sin(a)*35)]
+        return <line key={i} geometry={new THREE.BufferGeometry().setFromPoints(pts)}>
+          <lineBasicMaterial color="#0a2255" transparent opacity={0.2} blending={THREE.AdditiveBlending} />
+        </line>
       })}
     </group>
   )
