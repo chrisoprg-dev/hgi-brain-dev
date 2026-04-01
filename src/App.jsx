@@ -1,467 +1,311 @@
 import React, { useEffect, useRef, useState } from 'react'
 
-export default function App() {
+// Mini brain shader for center panel
+function BrainCanvas() {
   const canvasRef = useRef(null)
-  const [time, setTime] = useState(new Date())
-  const [tIdx, setTIdx] = useState(0)
-  const THOUGHTS = [
-    { agent: 'Intelligence Engine', text: 'Scanning DR-4900 Louisiana federal register...', color: '#00e5ff' },
-    { agent: 'Proposal Writer', text: 'Drafting Section 3.2 — Technical Approach', color: '#daa520' },
-    { agent: 'Competitive Intel', text: 'Civix/CCG confirmed bidding JP SOQ', color: '#e8834a' },
-    { agent: 'Self-Awareness', text: 'Mesh health 94%. Proposal output +340%', color: '#ff6b6b' },
-    { agent: 'CRM Agent', text: 'Donna Evans — no contact in 14 days', color: '#00e5ff' },
-    { agent: 'Red Team', text: 'Weakness: no local office ref in JP SOQ', color: '#daa520' },
-    { agent: 'Pipeline Scanner', text: 'JP SOQ deadline: 8 days — escalating', color: '#4ecdc4' },
-    { agent: 'Winnability', text: 'NOLA PWIN revised to 88% — incumbent edge', color: '#00e5ff' },
-  ]
-
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
-
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
     if (!gl) return
+    canvas.width = 500; canvas.height = 400
+    gl.viewport(0, 0, 500, 400)
 
-    const resize = () => {
-      canvas.width = window.innerWidth * window.devicePixelRatio
-      canvas.height = window.innerHeight * window.devicePixelRatio
-      canvas.style.width = window.innerWidth + 'px'
-      canvas.style.height = window.innerHeight + 'px'
-      gl.viewport(0, 0, canvas.width, canvas.height)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-
-    // Fullscreen quad
     const vs = `attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}`
     const fs = `
     precision highp float;
     uniform float u_time;
     uniform vec2 u_resolution;
-    uniform vec2 u_mouse;
-
-    #define MAX_STEPS 80
-    #define MAX_DIST 50.0
-    #define SURF_DIST 0.005
-    #define PI 3.14159265
-
-    // Noise functions
-    vec3 hash33(vec3 p3){
-      p3=fract(p3*vec3(.1031,.1030,.0973));
-      p3+=dot(p3,p3.yxz+33.33);
-      return fract((p3.xxy+p3.yxx)*p3.zyx);
-    }
-    float noise(vec3 p){
-      vec3 i=floor(p),f=fract(p);
-      f=f*f*(3.0-2.0*f);
-      return mix(mix(mix(dot(hash33(i+vec3(0,0,0))-.5,f-vec3(0,0,0)),
-                        dot(hash33(i+vec3(1,0,0))-.5,f-vec3(1,0,0)),f.x),
-                    mix(dot(hash33(i+vec3(0,1,0))-.5,f-vec3(0,1,0)),
-                        dot(hash33(i+vec3(1,1,0))-.5,f-vec3(1,1,0)),f.x),f.y),
-                mix(mix(dot(hash33(i+vec3(0,0,1))-.5,f-vec3(0,0,1)),
-                        dot(hash33(i+vec3(1,0,1))-.5,f-vec3(1,0,1)),f.x),
-                    mix(dot(hash33(i+vec3(0,1,1))-.5,f-vec3(0,1,1)),
-                        dot(hash33(i+vec3(1,1,1))-.5,f-vec3(1,1,1)),f.x),f.y),f.z);
-    }
-    float fbm(vec3 p){
-      float v=0.0,a=0.5;
-      for(int i=0;i<4;i++){v+=a*noise(p);p*=2.0;a*=0.5;}
-      return v;
-    }
-
-    // Brain SDF - ellipsoid with noise displacement for folds
+    vec3 hash33(vec3 p3){p3=fract(p3*vec3(.1031,.1030,.0973));p3+=dot(p3,p3.yxz+33.33);return fract((p3.xxy+p3.yxx)*p3.zyx);}
+    float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(mix(dot(hash33(i)-.5,f),dot(hash33(i+vec3(1,0,0))-.5,f-vec3(1,0,0)),f.x),mix(dot(hash33(i+vec3(0,1,0))-.5,f-vec3(0,1,0)),dot(hash33(i+vec3(1,1,0))-.5,f-vec3(1,1,0)),f.x),f.y),mix(mix(dot(hash33(i+vec3(0,0,1))-.5,f-vec3(0,0,1)),dot(hash33(i+vec3(1,0,1))-.5,f-vec3(1,0,1)),f.x),mix(dot(hash33(i+vec3(0,1,1))-.5,f-vec3(0,1,1)),dot(hash33(i+vec3(1,1,1))-.5,f-vec3(1,1,1)),f.x),f.y),f.z);}
     float brainSDF(vec3 p){
-      // Rotate slowly
-      float angle = u_time * 0.15;
-      float ca=cos(angle),sa=sin(angle);
-      p.xz = mat2(ca,-sa,sa,ca) * p.xz;
-
-      // Brain proportions: wide, short, deep
-      vec3 bp = p / vec3(1.6, 1.0, 1.2);
-      float base = length(bp) - 1.0;
-      
-      // Flatten bottom
-      if(p.y < -0.3) base += (p.y + 0.3) * 0.5;
-      
-      // Central fissure
-      base += exp(-p.z*p.z*8.0) * 0.12;
-      
-      // Sulci folds via multi-octave noise
-      float folds = noise(p * 3.0 + u_time * 0.05) * 0.15;
-      folds += noise(p * 6.0 + u_time * 0.03) * 0.07;
-      folds += noise(p * 12.0 + u_time * 0.02) * 0.035;
-      
-      // Lateral fissure
-      float lateral = exp(-(p.y+0.1)*(p.y+0.1)*6.0) * exp(-(abs(p.z)-0.6)*(abs(p.z)-0.6)*3.0) * 0.08;
-      
-      return base + folds - lateral;
+      float a=u_time*0.15;float ca=cos(a),sa=sin(a);p.xz=mat2(ca,-sa,sa,ca)*p.xz;
+      vec3 bp=p/vec3(1.5,0.95,1.2);float base=length(bp)-1.0;
+      if(p.y<-0.3)base+=(p.y+0.3)*0.5;
+      base+=exp(-p.z*p.z*10.0)*0.12;
+      base+=noise(p*3.0+u_time*0.05)*0.15+noise(p*6.0+u_time*0.03)*0.07+noise(p*12.0)*0.035;
+      return base;
     }
-
-    // Platform rings SDF
-    float platformSDF(vec3 p){
-      p.y += 2.0;
-      float d = abs(p.y) - 0.01;
-      float r = length(p.xz);
-      // Concentric rings
-      float rings = 1e10;
-      for(float i=1.0;i<7.0;i++){
-        float ri = i * 0.5 + 1.0;
-        rings = min(rings, abs(r - ri) - 0.015);
-      }
-      return max(d, rings);
-    }
-
-    float sceneSDF(vec3 p){
-      return min(brainSDF(p), platformSDF(p));
-    }
-
-    vec3 getNormal(vec3 p){
-      float e=0.001;
-      return normalize(vec3(
-        brainSDF(p+vec3(e,0,0))-brainSDF(p-vec3(e,0,0)),
-        brainSDF(p+vec3(0,e,0))-brainSDF(p-vec3(0,e,0)),
-        brainSDF(p+vec3(0,0,e))-brainSDF(p-vec3(0,0,e))
-      ));
-    }
-
-    float rayMarch(vec3 ro, vec3 rd){
-      float d=0.0;
-      for(int i=0;i<MAX_STEPS;i++){
-        vec3 p=ro+rd*d;
-        float ds=sceneSDF(p);
-        d+=ds;
-        if(ds<SURF_DIST||d>MAX_DIST) break;
-      }
-      return d;
-    }
-
-    // Volumetric glow around the brain
-    vec3 volumetricGlow(vec3 ro, vec3 rd){
-      vec3 glow = vec3(0.0);
-      float t = 0.0;
-      for(int i=0;i<40;i++){
-        t += 0.15;
-        vec3 p = ro + rd * t;
-        float dist = brainSDF(p);
-        if(dist < 0.5){
-          float intensity = exp(-dist * 3.5) * 0.05;
-          
-          // Neural activity pulses
-          float fire = pow(max(0.0,
-            sin(p.x*3.0+u_time*2.0)*
-            sin(p.y*4.0+u_time*1.5)*
-            sin(p.z*3.5+u_time*1.2)), 4.0);
-          
-          // Color based on position
-          vec3 col = mix(
-            vec3(0.08, 0.1, 0.6),  // deep blue
-            vec3(0.5, 0.15, 0.7),  // purple
-            smoothstep(-1.0, 1.0, p.y)
-          );
-          col += vec3(0.3, 0.7, 1.0) * fire * 5.0; // cyan neural fires
-          col += vec3(1.0, 0.5, 0.2) * pow(fire, 2.0) * 3.5; // orange hotspots
-          
-          // Scanlines
-          float scan = sin(p.y * 20.0 + u_time * 2.0) * 0.5 + 0.5;
-          col *= 0.7 + scan * 0.3;
-          
-          glow += col * intensity;
-        }
-        if(t > 8.0) break;
-      }
-      return glow;
-    }
-
-    // Energy beam
-    vec3 energyBeam(vec3 ro, vec3 rd){
-      vec3 beam = vec3(0.0);
-      for(float t=0.0;t<10.0;t+=0.2){
-        vec3 p = ro + rd * t;
-        float r = length(p.xz);
-        float y = p.y;
-        if(y > -2.5 && y < 2.0 && r < 0.3){
-          float intensity = exp(-r * 15.0) * 0.03;
-          float scroll = sin(y * 15.0 - u_time * 5.0) * 0.5 + 0.5;
-          intensity *= (0.3 + scroll * 0.7);
-          beam += vec3(0.2, 0.6, 1.0) * intensity;
-        }
-      }
-      return beam;
-    }
-
-    // Platform glow
-    vec3 platformGlow(vec3 ro, vec3 rd){
-      vec3 glow = vec3(0.0);
-      // Intersect y=-2 plane
-      float t = (-2.0 - ro.y) / rd.y;
-      if(t > 0.0){
-        vec3 p = ro + rd * t;
-        float r = length(p.xz);
-        // Concentric rings
-        for(float i=1.0;i<7.0;i++){
-          float ri = i * 0.5 + 1.0;
-          float ringDist = abs(r - ri);
-          float intensity = exp(-ringDist * 40.0) * (0.45 - i * 0.04);
-          vec3 col = mix(vec3(0.0, 0.6, 1.0), vec3(0.3, 0.3, 0.8), i/7.0);
-          glow += col * intensity;
-        }
-        // Grid pattern
-        float grid = step(0.97, fract(p.x * 3.0)) + step(0.97, fract(p.z * 3.0));
-        glow += vec3(0.05, 0.15, 0.3) * grid * exp(-r * 0.15) * 0.3;
-        // Radial lines
-        float angle = atan(p.z, p.x);
-        float radial = step(0.98, fract(angle * 8.0 / (2.0 * PI)));
-        glow += vec3(0.05, 0.1, 0.2) * radial * exp(-r * 0.1) * 0.5;
-        // Rotating scan
-        float scanAngle = mod(u_time * 0.3, 2.0 * PI);
-        float scanDist = abs(mod(angle - scanAngle + PI, 2.0*PI) - PI);
-        glow += vec3(0.1, 0.3, 0.6) * exp(-scanDist * 5.0) * exp(-r * 0.08) * 0.4;
-      }
-      return glow;
-    }
-
-    // Background stars
-    vec3 stars(vec3 rd){
-      vec3 col = vec3(0.0);
-      vec3 p = rd * 100.0;
-      float star = pow(max(0.0, noise(p * 2.0)), 20.0) * 0.5;
-      col += vec3(0.5, 0.6, 0.8) * star;
-      return col;
-    }
-
+    vec3 getNormal(vec3 p){float e=0.001;return normalize(vec3(brainSDF(p+vec3(e,0,0))-brainSDF(p-vec3(e,0,0)),brainSDF(p+vec3(0,e,0))-brainSDF(p-vec3(0,e,0)),brainSDF(p+vec3(0,0,e))-brainSDF(p-vec3(0,0,e))));}
     void main(){
-      vec2 uv = (gl_FragCoord.xy - u_resolution.xy * 0.5) / u_resolution.y;
-      
-      // Camera
-      float camDist = 5.5;
-      float camY = 0.5 + sin(u_time * 0.1) * 0.3;
-      vec3 ro = vec3(sin(u_time*0.08)*camDist, camY, cos(u_time*0.08)*camDist);
-      vec3 target = vec3(0.0, 0.0, 0.0);
-      
-      vec3 f = normalize(target - ro);
-      vec3 r = normalize(cross(vec3(0,1,0), f));
-      vec3 u = cross(f, r);
-      vec3 rd = normalize(f + uv.x * r + uv.y * u);
-      
-      // Render
-      vec3 col = vec3(0.01, 0.01, 0.04); // deep space
-      col += stars(rd);
-      
-      // Volumetric brain glow (the main visual)
-      col += volumetricGlow(ro, rd);
-      
-      // Surface hit for fresnel
-      float d = rayMarch(ro, rd);
-      if(d < MAX_DIST){
-        vec3 p = ro + rd * d;
-        float brain = brainSDF(p);
-        if(brain < SURF_DIST * 2.0){
-          vec3 n = getNormal(p);
-          float fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
-          col += vec3(0.2, 0.5, 1.0) * fresnel * 3.0;
-          col += vec3(1.0) * pow(fresnel, 4.0) * 1.8;
+      vec2 uv=(gl_FragCoord.xy-u_resolution.xy*0.5)/u_resolution.y;
+      vec3 ro=vec3(sin(u_time*0.08)*4.5,0.5,cos(u_time*0.08)*4.5);
+      vec3 f=normalize(-ro),r=normalize(cross(vec3(0,1,0),f)),u=cross(f,r);
+      vec3 rd=normalize(f+uv.x*r+uv.y*u);
+      vec3 col=vec3(0.01,0.01,0.03);
+      // Volumetric
+      for(int i=0;i<35;i++){
+        float t=float(i)*0.14;vec3 p=ro+rd*t;float dist=brainSDF(p);
+        if(dist<0.6){
+          float density=exp(-dist*3.5)*0.045;
+          vec3 c=mix(vec3(0.08,0.1,0.55),vec3(0.45,0.12,0.65),(p.y+1.0)/2.0);
+          float fire=pow(max(0.0,sin(p.x*2.5+u_time*2.0)*sin(p.y*3.0+u_time*1.5)*sin(p.z*2.8+u_time*1.0)),4.0);
+          c+=vec3(0.3,0.7,1.0)*fire*5.0+vec3(1.0,0.5,0.2)*fire*fire*3.0;
+          float scan=sin(p.y*20.0+u_time*2.5)*0.5+0.5;c*=0.7+scan*0.3;
+          col+=c*density;
         }
+        if(t>8.0)break;
       }
-      
-      // Platform
-      col += platformGlow(ro, rd);
-      
-      // Energy beam
-      col += energyBeam(ro, rd);
-      
-      // Vignette
-      vec2 vuv = gl_FragCoord.xy / u_resolution.xy;
-      col *= 1.0 - 0.4 * length(vuv - 0.5);
-      
-      // Scanline overlay
-      col *= 0.95 + 0.05 * sin(gl_FragCoord.y * 1.5);
-      
-      // Tone mapping
-      col = col / (1.0 + col);
-      col = pow(col, vec3(0.85));
-      
-      gl_FragColor = vec4(col, 1.0);
+      // Surface fresnel
+      float d=0.0;for(int i=0;i<60;i++){vec3 p=ro+rd*d;float ds=brainSDF(p);d+=ds*0.8;if(ds<0.003||d>40.0)break;}
+      if(d<40.0){vec3 p=ro+rd*d;vec3 n=getNormal(p);float fr=pow(1.0-max(dot(n,-rd),0.0),2.5);col+=vec3(0.3,0.4,1.0)*fr*2.5+vec3(0.6,0.2,0.8)*pow(fr,3.0)*1.5;}
+      // Platform rings
+      float pt=(-1.8-ro.y)/rd.y;
+      if(pt>0.0){vec3 pp=ro+rd*pt;float pr=length(pp.xz);
+        for(float i=0.0;i<5.0;i++){float ri=i*0.5+1.0;col+=mix(vec3(0.0,0.5,1.0),vec3(0.3,0.2,0.7),i/5.0)*exp(-abs(pr-ri)*50.0)*(0.4-i*0.06);}
+        col+=vec3(0.05,0.12,0.3)*exp(-pr*0.6)*0.4;
+      }
+      col=col/(0.8+col);col=pow(col,vec3(0.9));
+      gl_FragColor=vec4(col,1.0);
     }`
 
-    function compileShader(src, type) {
-      const s = gl.createShader(type)
-      gl.shaderSource(s, src)
-      gl.compileShader(s)
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(s))
-        return null
-      }
-      return s
-    }
-
-    const vShader = compileShader(vs, gl.VERTEX_SHADER)
-    const fShader = compileShader(fs, gl.FRAGMENT_SHADER)
-    if (!vShader || !fShader) return
-
-    const prog = gl.createProgram()
-    gl.attachShader(prog, vShader)
-    gl.attachShader(prog, fShader)
-    gl.linkProgram(prog)
-    gl.useProgram(prog)
-
-    const buf = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW)
-    const pLoc = gl.getAttribLocation(prog, 'p')
-    gl.enableVertexAttribArray(pLoc)
-    gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0)
-
-    const uTime = gl.getUniformLocation(prog, 'u_time')
-    const uRes = gl.getUniformLocation(prog, 'u_resolution')
-    const uMouse = gl.getUniformLocation(prog, 'u_mouse')
-
-    let mouseX = 0.5, mouseY = 0.5
-    canvas.addEventListener('mousemove', (e) => {
-      mouseX = e.clientX / window.innerWidth
-      mouseY = 1.0 - e.clientY / window.innerHeight
-    })
-
-    const startTime = Date.now()
-    let animId
-    function render() {
-      const t = (Date.now() - startTime) / 1000
-      gl.uniform1f(uTime, t)
-      gl.uniform2f(uRes, canvas.width, canvas.height)
-      gl.uniform2f(uMouse, mouseX, mouseY)
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-      animId = requestAnimationFrame(render)
-    }
+    function cs(src,type){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null}return s}
+    const v=cs(vs,gl.VERTEX_SHADER),f=cs(fs,gl.FRAGMENT_SHADER);if(!v||!f)return
+    const prog=gl.createProgram();gl.attachShader(prog,v);gl.attachShader(prog,f);gl.linkProgram(prog);gl.useProgram(prog)
+    const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW)
+    const pL=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(pL);gl.vertexAttribPointer(pL,2,gl.FLOAT,false,0,0)
+    const uT=gl.getUniformLocation(prog,'u_time'),uR=gl.getUniformLocation(prog,'u_resolution')
+    const st=Date.now();let aid
+    function render(){gl.uniform1f(uT,(Date.now()-st)/1000);gl.uniform2f(uR,500,400);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);aid=requestAnimationFrame(render)}
     render()
+    return()=>cancelAnimationFrame(aid)
+  },[])
+  return <canvas ref={canvasRef} style={{width:'100%',height:'100%',borderRadius:12}} />
+}
 
-    return () => {
-      cancelAnimationFrame(animId)
-      window.removeEventListener('resize', resize)
-    }
+// Agent node component
+function AgentNode({name,role,x,y,color,status,active}) {
+  return (
+    <div style={{position:'absolute',left:x,top:y,transform:'translate(-50%,-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:4,zIndex:5}}>
+      <div style={{width:44,height:44,borderRadius:'50%',background:`radial-gradient(circle at 40% 35%, ${color}44, ${color}22)`,border:`2px solid ${color}66`,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 0 15px ${color}33, inset 0 0 10px ${color}22`}}>
+        <div style={{width:18,height:18,borderRadius:'50%',background:`${color}`,boxShadow:`0 0 8px ${color}`}} />
+      </div>
+      <span style={{fontSize:10,fontWeight:700,color:'#aabbcc',letterSpacing:1,textTransform:'uppercase',textShadow:'0 0 8px rgba(0,0,0,0.8)'}}>{name}</span>
+      <span style={{fontSize:8,color:'#556677'}}>{role}</span>
+    </div>
+  )
+}
+
+// Connection line between two points
+function Connection({x1,y1,x2,y2,color,animated}) {
+  const mx=(x1+x2)/2, my=(y1+y2)/2-20
+  return (
+    <svg style={{position:'absolute',inset:0,zIndex:2,pointerEvents:'none',overflow:'visible'}} viewBox="0 0 100 100" preserveAspectRatio="none">
+      <path d={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`} fill="none" stroke={color||'#334466'} strokeWidth="0.3" strokeOpacity="0.4" />
+      {animated && <circle r="0.6" fill="#00ccff" opacity="0.8">
+        <animateMotion dur="3s" repeatCount="indefinite" path={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`} />
+      </circle>}
+    </svg>
+  )
+}
+
+export default function App() {
+  const [time, setTime] = useState(new Date())
+  const [tIdx, setTIdx] = useState(0)
+
+  useEffect(() => {
+    const t1 = setInterval(() => setTime(new Date()), 1000)
+    const t2 = setInterval(() => setTIdx(i => (i + 1) % 6), 3000)
+    return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
+  const thoughts = [
+    { agent: 'Intelligence', text: 'Scanning DR-4900 Louisiana updates...', time: '2m ago' },
+    { agent: 'Proposal', text: 'Drafting St. Mary technical approach', time: '5m ago' },
+    { agent: 'CRM', text: 'Donna Evans contact follow-up needed', time: '8m ago' },
+    { agent: 'Red Team', text: 'JP SOQ local office weakness flagged', time: '12m ago' },
+    { agent: 'Competitive', text: 'Civix/CCG confirmed JP SOQ bidder', time: '15m ago' },
+    { agent: 'Self-Awareness', text: 'Mesh health 94%, output +340%', time: '18m ago' },
+  ]
+
+  const P = {bg:'rgba(6,10,28,0.9)',border:'1px solid rgba(68,136,255,0.1)',borderRadius:10,backdropFilter:'blur(12px)'}
+
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#000', position: 'relative', overflow: 'hidden', fontFamily: "'SF Mono','Fira Code','Consolas',monospace" }}>
-      {/* WebGL Canvas - the brain renderer */}
-      <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, zIndex: 1 }} />
+    <div style={{width:'100vw',height:'100vh',background:'linear-gradient(135deg,#050818 0%,#0a0e24 50%,#080c1a 100%)',color:'#c0ccdd',fontFamily:"'SF Mono','Fira Code','Consolas',monospace",overflow:'hidden',display:'flex',flexDirection:'column'}}>
 
-      {/* HUD overlays on top */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
-        {/* Top bar */}
-        <div style={{ padding: '14px 24px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#4488ff', boxShadow: '0 0 15px #4488ff' }} />
-            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 6, color: '#6699ff', textShadow: '0 0 25px rgba(68,136,255,0.5)' }}>HGI ORGANISM</span>
-            <span style={{ fontSize: 10, color: '#223355', letterSpacing: 2 }}>NEURAL CORE v3.4</span>
+      {/* === HEADER === */}
+      <div style={{padding:'12px 20px',borderBottom:'1px solid rgba(68,136,255,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:800,letterSpacing:4,color:'#8899cc',display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:'#4488ff',boxShadow:'0 0 12px #4488ff'}} />
+            NEURAL OPERATIONS HUB
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 10px #00ff88' }} />
-              <span style={{ fontSize: 10, color: '#33aa66' }}>MESH ACTIVE</span>
-            </div>
-            <span style={{ fontSize: 10, color: '#334455' }}>43 AGENTS · 380+ PATHS</span>
-            <span style={{ fontSize: 10, color: '#334455' }}>{time.toLocaleTimeString()}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 9, color: '#445566', letterSpacing: 1 }}>HEALTH</span>
-              <span style={{ fontSize: 26, fontWeight: 800, color: '#4488ff', textShadow: '0 0 30px rgba(68,136,255,0.6)' }}>87</span>
-            </div>
+          <div style={{fontSize:10,color:'#334455',letterSpacing:2,marginTop:2}}>MULTI-AGENT AI SYSTEM OVERVIEW</div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:20}}>
+          <div style={{fontSize:10,color:'#334455'}}>{time.toLocaleTimeString()}</div>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:'#00ff88',boxShadow:'0 0 8px #00ff88'}} />
+            <span style={{fontSize:10,color:'#33aa66'}}>PERFORMANCE OPTIMAL</span>
+          </div>
+        </div>
+      </div>
+
+      {/* === MAIN CONTENT === */}
+      <div style={{flex:1,display:'flex',gap:1,padding:'8px',overflow:'hidden'}}>
+
+        {/* === LEFT COLUMN === */}
+        <div style={{width:240,display:'flex',flexDirection:'column',gap:8,flexShrink:0}}>
+          {/* Task Gates */}
+          <div style={{...P,padding:'14px 16px',flex:1}}>
+            <div style={{fontSize:9,letterSpacing:2,color:'#4466aa',marginBottom:12,fontWeight:700}}>TASK GATES</div>
+            {[
+              {name:'Intelligence Sweep',status:'complete',color:'#00ff88'},
+              {name:'Competitive Analysis',status:'running',color:'#4488ff'},
+              {name:'Financial Modeling',status:'running',color:'#4488ff'},
+              {name:'Proposal Drafting',status:'queued',color:'#daa520'},
+              {name:'Quality Review',status:'pending',color:'#556677'},
+              {name:'Red Team Audit',status:'pending',color:'#556677'},
+            ].map((t,i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,padding:'6px 8px',background:'rgba(255,255,255,0.02)',borderRadius:6,border:'1px solid rgba(255,255,255,0.03)'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:7,height:7,borderRadius:'50%',background:t.color,boxShadow:`0 0 6px ${t.color}44`}} />
+                  <span style={{fontSize:10,color:'#8899aa'}}>{t.name}</span>
+                </div>
+                <span style={{fontSize:8,color:t.color,textTransform:'uppercase',letterSpacing:0.5}}>{t.status}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Task Reasoning */}
+          <div style={{...P,padding:'14px 16px'}}>
+            <div style={{fontSize:9,letterSpacing:2,color:'#4466aa',marginBottom:10,fontWeight:700}}>REASONING PATHWAY</div>
+            {[
+              {step:'Analyze RFP Requirements',status:'✓',color:'#00ff88'},
+              {step:'Cross-reference KB',status:'✓',color:'#00ff88'},
+              {step:'Competitive Position',status:'→',color:'#4488ff'},
+              {step:'Draft Response',status:'○',color:'#556677'},
+              {step:'Red Team Review',status:'○',color:'#556677'},
+            ].map((s,i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                <span style={{fontSize:11,color:s.color,width:14,textAlign:'center'}}>{s.status}</span>
+                <span style={{fontSize:10,color:s.color==='#556677'?'#556677':'#8899aa'}}>{s.step}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Left panel */}
-        <div style={{ position: 'absolute', left: 16, top: 75, width: 195, pointerEvents: 'auto', background: 'rgba(3,6,20,0.8)', backdropFilter: 'blur(16px)', border: '1px solid rgba(68,136,255,0.1)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: '#3355aa', marginBottom: 10, fontWeight: 700 }}>AGENT CLUSTERS</div>
-          {[
-            { name: 'Intelligence', count: 9, active: 8, color: '#00e5ff' },
-            { name: 'Proposal', count: 11, active: 9, color: '#daa520' },
-            { name: 'Operations', count: 7, active: 7, color: '#4ecdc4' },
-            { name: 'Research', count: 7, active: 6, color: '#e8834a' },
-            { name: 'Executive', count: 4, active: 4, color: '#9b59b6' },
-            { name: 'Meta', count: 5, active: 5, color: '#ff6b6b' },
-          ].map(c => (
-            <div key={c.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: c.color, boxShadow: `0 0 6px ${c.color}` }} />
-                <span style={{ fontSize: 10, color: '#7788aa' }}>{c.name}</span>
+        {/* === CENTER — BRAIN + AGENTS === */}
+        <div style={{flex:1,position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minWidth:0}}>
+          {/* Brain shader */}
+          <div style={{width:'100%',maxWidth:500,aspectRatio:'5/4',position:'relative'}}>
+            <BrainCanvas />
+            {/* Agent nodes positioned around the brain */}
+            <AgentNode name="INTELLIGENCE" role="Research & Discovery" x="15%" y="30%" color="#00e5ff" />
+            <AgentNode name="PROPOSAL" role="Content Generation" x="85%" y="30%" color="#daa520" />
+            <AgentNode name="ANALYSIS" role="Research & Strategy" x="10%" y="75%" color="#e8834a" />
+            <AgentNode name="SELF-AWARE" role="Meta Intelligence" x="50%" y="10%" color="#ff6b6b" />
+            <AgentNode name="OPERATIONS" role="Pipeline & Staffing" x="90%" y="75%" color="#4ecdc4" />
+          </div>
+
+          {/* Bottom metrics bar */}
+          <div style={{display:'flex',gap:16,marginTop:12}}>
+            {[
+              {label:'AGENTS',value:'43',sub:'active'},
+              {label:'MEMORY',value:'5,426',sub:'records'},
+              {label:'MESH',value:'94%',sub:'health'},
+              {label:'LATENCY',value:'136ms',sub:'avg cycle'},
+            ].map(m => (
+              <div key={m.label} style={{textAlign:'center',padding:'8px 16px',background:'rgba(6,10,28,0.8)',borderRadius:8,border:'1px solid rgba(68,136,255,0.08)'}}>
+                <div style={{fontSize:16,fontWeight:700,color:'#4488ff'}}>{m.value}</div>
+                <div style={{fontSize:8,color:'#445566',letterSpacing:1,marginTop:2}}>{m.sub}</div>
               </div>
-              <span style={{ fontSize: 9, color: c.color, fontWeight: 600 }}>{c.active}/{c.count}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* === RIGHT COLUMN === */}
+        <div style={{width:240,display:'flex',flexDirection:'column',gap:8,flexShrink:0}}>
+          {/* System Primitives */}
+          <div style={{...P,padding:'14px 16px'}}>
+            <div style={{fontSize:9,letterSpacing:2,color:'#4466aa',marginBottom:10,fontWeight:700}}>SYSTEM PRIMITIVES</div>
+            {[
+              {label:'AI Model Calls',value:'847',color:'#4488ff'},
+              {label:'Token Usage',value:'2.4M',color:'#4488ff'},
+              {label:'Error Rate',value:'0.3%',color:'#00ff88'},
+              {label:'Cost Today',value:'$0.42',color:'#daa520'},
+            ].map(m => (
+              <div key={m.label} style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                <span style={{fontSize:10,color:'#667788'}}>{m.label}</span>
+                <span style={{fontSize:10,color:m.color,fontWeight:600}}>{m.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Active Agents */}
+          <div style={{...P,padding:'14px 16px',flex:1}}>
+            <div style={{fontSize:9,letterSpacing:2,color:'#4466aa',marginBottom:10,fontWeight:700}}>ACTIVE AGENTS</div>
+            {[
+              {name:'Intelligence Engine',status:'scanning',time:'2m',color:'#00e5ff',progress:78},
+              {name:'Proposal Writer',status:'drafting',time:'5m',color:'#daa520',progress:45},
+              {name:'Financial Agent',status:'modeling',time:'3m',color:'#4ecdc4',progress:62},
+              {name:'CRM Agent',status:'monitoring',time:'1m',color:'#00e5ff',progress:90},
+              {name:'Red Team',status:'auditing',time:'8m',color:'#e8834a',progress:33},
+              {name:'Self-Awareness',status:'evaluating',time:'<1m',color:'#ff6b6b',progress:95},
+            ].map((a,i) => (
+              <div key={i} style={{marginBottom:10,padding:'8px',background:'rgba(255,255,255,0.02)',borderRadius:6,border:'1px solid rgba(255,255,255,0.03)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                  <span style={{fontSize:10,color:'#8899aa',fontWeight:600}}>{a.name}</span>
+                  <span style={{fontSize:8,color:a.color}}>{a.time}</span>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <div style={{flex:1,height:3,background:'rgba(255,255,255,0.05)',borderRadius:2,overflow:'hidden'}}>
+                    <div style={{width:`${a.progress}%`,height:'100%',background:a.color,borderRadius:2,boxShadow:`0 0 4px ${a.color}44`}} />
+                  </div>
+                  <span style={{fontSize:8,color:'#556677',textTransform:'uppercase'}}>{a.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Live Feed */}
+          <div style={{...P,padding:'14px 16px'}}>
+            <div style={{fontSize:9,letterSpacing:2,color:'#4466aa',marginBottom:10,fontWeight:700,display:'flex',justifyContent:'space-between'}}>
+              <span>LIVE FEED</span>
+              <span style={{color:'#ff4444',animation:'blink 1s step-end infinite'}}>● LIVE</span>
+            </div>
+            {thoughts.slice(tIdx, tIdx+3).map((t,i) => (
+              <div key={i} style={{marginBottom:6,opacity:1-i*0.25}}>
+                <div style={{display:'flex',justifyContent:'space-between'}}>
+                  <span style={{fontSize:9,color:'#4488ff',fontWeight:600}}>{t.agent}</span>
+                  <span style={{fontSize:8,color:'#334455'}}>{t.time}</span>
+                </div>
+                <div style={{fontSize:9,color:'#667788',marginTop:2}}>{t.text}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* === BOTTOM BAR === */}
+      <div style={{padding:'8px 20px',borderTop:'1px solid rgba(68,136,255,0.06)',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+        <div style={{display:'flex',gap:20}}>
+          {[
+            {name:'Intelligence',count:9,color:'#00e5ff'},
+            {name:'Proposal',count:11,color:'#daa520'},
+            {name:'Operations',count:7,color:'#4ecdc4'},
+            {name:'Research',count:7,color:'#e8834a'},
+            {name:'Executive',count:4,color:'#9b59b6'},
+            {name:'Meta',count:5,color:'#ff6b6b'},
+          ].map(c => (
+            <div key={c.name} style={{display:'flex',alignItems:'center',gap:4}}>
+              <div style={{width:5,height:5,borderRadius:'50%',background:c.color,boxShadow:`0 0 4px ${c.color}44`}} />
+              <span style={{fontSize:9,color:'#445566'}}>{c.name} ({c.count})</span>
             </div>
           ))}
         </div>
-
-        {/* Right panel */}
-        <div style={{ position: 'absolute', right: 16, top: 75, width: 195, pointerEvents: 'auto', background: 'rgba(3,6,20,0.8)', backdropFilter: 'blur(16px)', border: '1px solid rgba(68,136,255,0.1)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: '#3355aa', marginBottom: 10, fontWeight: 700 }}>SYSTEM METRICS</div>
+        <div style={{display:'flex',gap:16}}>
           {[
-            { label: 'Memory Records', value: '5,426', color: '#4488ff' },
-            { label: 'Active Pipeline', value: '7', color: '#00cc88' },
-            { label: 'Pursuing', value: '3', color: '#daa520' },
-            { label: 'Last Cycle', value: '12m ago', color: '#7788aa' },
-            { label: 'OPI Range', value: '72-94', color: '#4ecdc4' },
+            {label:'Pipeline',value:'7 active'},
+            {label:'Pursuing',value:'3'},
+            {label:'OPI Range',value:'72-94'},
           ].map(m => (
-            <div key={m.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 10, color: '#556677' }}>{m.label}</span>
-              <span style={{ fontSize: 10, color: m.color, fontWeight: 600 }}>{m.value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* BOTTOM LEFT - THOUGHT STREAM */}
-        <div style={{ position: 'absolute', left: 16, bottom: 40, width: 340, pointerEvents: 'auto', background: 'rgba(3,6,20,0.85)', backdropFilter: 'blur(16px)', border: '1px solid rgba(68,136,255,0.12)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: '#3355aa', marginBottom: 10, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-            <span>LIVE THOUGHT STREAM</span>
-            <span style={{ color: '#ff4444' }}>● LIVE</span>
-          </div>
-          <div style={{ opacity: 0.35, marginBottom: 8 }}>
-            <div style={{ fontSize: 9, color: THOUGHTS[(tIdx-1+8)%8].color, fontWeight: 600 }}>{THOUGHTS[(tIdx-1+8)%8].agent}</div>
-            <div style={{ fontSize: 10, color: '#667788', lineHeight: 1.4 }}>{THOUGHTS[(tIdx-1+8)%8].text}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: THOUGHTS[tIdx].color, fontWeight: 600 }}>{THOUGHTS[tIdx].agent}</div>
-            <div style={{ fontSize: 10, color: '#99aabb', lineHeight: 1.4 }}>{THOUGHTS[tIdx].text}</div>
-          </div>
-        </div>
-
-        {/* BOTTOM RIGHT - PIPELINE */}
-        <div style={{ position: 'absolute', right: 16, bottom: 40, width: 250, pointerEvents: 'auto', background: 'rgba(3,6,20,0.85)', backdropFilter: 'blur(16px)', border: '1px solid rgba(68,136,255,0.12)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: '#3355aa', marginBottom: 10, fontWeight: 700 }}>ACTIVE PIPELINE</div>
-          {[
-            { name: 'NOLA Water', opi: 94, stage: 'pursuing', color: '#00ff88' },
-            { name: 'DR-4900 LA', opi: 92, stage: 'identified', color: '#4488ff' },
-            { name: 'St. George', opi: 85, stage: 'watching', color: '#daa520' },
-            { name: 'St. Mary', opi: 83, stage: 'pursuing', color: '#00ff88' },
-            { name: 'JP SOQ', opi: 72, stage: 'pursuing', color: '#ff6644' },
-          ].map(p => (
-            <div key={p.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-              <span style={{ fontSize: 10, color: '#7788aa' }}>{p.name}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 9, color: p.color, letterSpacing: 0.5 }}>{p.stage}</span>
-                <span style={{ fontSize: 11, color: '#4488ff', fontWeight: 700 }}>{p.opi}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* BOTTOM LEGEND */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '8px 28px', background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)', display: 'flex', justifyContent: 'center', gap: 24 }}>
-          {[
-            { name: 'Intelligence', color: '#00e5ff' },
-            { name: 'Proposal', color: '#daa520' },
-            { name: 'Operations', color: '#4ecdc4' },
-            { name: 'Research', color: '#e8834a' },
-            { name: 'Executive', color: '#9b59b6' },
-            { name: 'Meta', color: '#ff6b6b' },
-          ].map(c => (
-            <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: c.color, boxShadow: '0 0 4px ' + c.color }} />
-              <span style={{ fontSize: 9, color: '#445566' }}>{c.name}</span>
-            </div>
+            <span key={m.label} style={{fontSize:9,color:'#334455'}}>{m.label}: <span style={{color:'#4488ff'}}>{m.value}</span></span>
           ))}
         </div>
       </div>
+
+      <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}`}</style>
     </div>
   )
 }
